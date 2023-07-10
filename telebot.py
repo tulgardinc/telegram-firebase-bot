@@ -10,7 +10,7 @@ from telegram.ext import (
     MessageHandler,
     filters,
 )
-
+from prettytable import PrettyTable
 from typing import Final
 import constants
 
@@ -31,8 +31,24 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     """Send a message when the command /start is issued."""
     user = update.effective_user
     await update.message.reply_html(
-        rf"Hi {user.mention_html()}!",
+        rf"Hi {user.first_name}!",
         reply_markup=ForceReply(selective=True),
+    )
+
+
+async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Send a message when the command /start is issued."""
+    await update.message.reply_text(
+        """
+Made by Tulgar Dinc
+
+•  `/get \<token\>` \- Gets the current price and price change for coin\.
+•  `/gettop` \- Gets the current price and price change for top marketcap coin\.
+•  `/addcoin \<token\>` \- Adds coin to personal watchlist\.
+•  `/removecoin \<token\>` \- Removes coin from personal watchlist\.
+•  `/watchlist` \- Displays watchlist\.
+    """,
+        parse_mode="MarkdownV2",
     )
 
 
@@ -40,7 +56,7 @@ async def get_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     """Gets the current price and 24h change in price of specified coin"""
     arg = update.message.text.split()[1].upper()
     if len(words) <= 1:
-        await update.message.reply_text("Usage: /get <COIN TOKEN>")
+        await update.message.reply_text("Usage: /get <TOKEN>")
         return
 
     resp = cryptocompare.get_price(arg, currency=CURRENCY)
@@ -57,25 +73,29 @@ async def get_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 
 async def gettop_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Shows the price and the 24h price change of large marketcap coins"""
-    resp = cryptocompare.get_price(top, currency=CURRENCY)
+    await update.message.reply_text(coin_table(top), parse_mode="MarkdownV2")
+
+
+def coin_table(token_list):
+    resp = cryptocompare.get_price(token_list, currency=CURRENCY)
     timestamp = datetime.now() - timedelta(days=-1)
     old_resp = {}
-    for token in top:
+    for token in token_list:
         old_resp[token] = cryptocompare.get_historical_price(
             token, CURRENCY, timestamp
         )[token]
-    finalmsg = []
     zipped = zip(resp, old_resp)
+    table = PrettyTable()
+    table.field_names = ["Token", "Price", "Change (24h)"]
+    table.align = "r"
     for key, _ in zipped:
         price = resp[key][CURRENCY]
         old_price = old_resp[key][CURRENCY]
         change = (price - old_price) / price * 100
-        msg = f"{key}:  ${price}  ({change:.2f}%)\n"
-        finalmsg.append(msg)
-    await update.message.reply_text(
-        "Current price of High marketcap coins with change in 24h: \n\n"
-        + "".join(finalmsg)
-    )
+        sign = "+" if change > 0 else ""
+        row = [str(key), f"${price}", f"{sign}{change:.2f}%"]
+        table.add_row(row)
+    return f"```\n{table.get_string()}\n```"
 
 
 async def watchlist_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -99,32 +119,14 @@ async def watchlist_command(update: Update, context: ContextTypes.DEFAULT_TYPE) 
             "You don't have a watchlist. Use /addcoin to start one."
         )
         return
-    resp = cryptocompare.get_price(tokens, currency=CURRENCY)
-    timestamp = datetime.now() - timedelta(days=-1)
-    old_resp = {}
-    for token in tokens:
-        old_resp[token] = cryptocompare.get_historical_price(
-            token, CURRENCY, timestamp
-        )[token]
-    finalmsg = []
-    zipped = zip(resp, old_resp)
-    for key, _ in zipped:
-        price = resp[key][CURRENCY]
-        old_price = old_resp[key][CURRENCY]
-        change = (price - old_price) / price * 100
-        msg = f"{key}:  ${price}  ({change:.2f}%)\n"
-        finalmsg.append(msg)
-    await update.message.reply_text(
-        "Current price of watchlisted coins with change in 24h: \n\n"
-        + "".join(finalmsg)
-    )
+    await update.message.reply_text(coin_table(tokens), parse_mode="MarkdownV2")
 
 
 async def addcoin_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Adds specified coin to users watchlist"""
     words = update.message.text.split()
     if len(words) <= 1:
-        await update.message.reply_text("Usage: /addcoin <COIN TOKEN>")
+        await update.message.reply_text("Usage: /addcoin <TOKEN>")
         return
     username = update.message.from_user.username
     if username == None:
@@ -146,7 +148,7 @@ async def removecoin_command(
     """Removes specified coin from users watchlist"""
     words = update.message.text.split()
     if len(words) <= 1:
-        await update.message.reply_text("Usage: /removecoin <COIN TOKEN>")
+        await update.message.reply_text("Usage: /removecoin <TOKEN>")
         return
     username = update.message.from_user.username
     if username == None:
@@ -180,6 +182,7 @@ def main() -> None:
 
     # on different commands - answer in Telegram
     application.add_handler(CommandHandler("start", start_command))
+    application.add_handler(CommandHandler("help", help_command))
     application.add_handler(CommandHandler("get", get_command))
     application.add_handler(CommandHandler("gettop", gettop_command))
     application.add_handler(CommandHandler("addcoin", addcoin_command))
